@@ -2,12 +2,13 @@ name: React Native CI (Yarn 4)
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 jobs:
-  build:
+  # Android 构建 (Linux 环境)
+  android-build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -16,53 +17,63 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 设置 Node.js 环境（自动包含 Corepack）
+      # 2. 设置 Node.js 20 (自带 Corepack)
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '20'  # 必须 >=16.10（Corepack 最低要求）
-          cache: 'yarn'       # 缓存 Yarn 依赖
+          node-version: 20
+          cache: "yarn" # 自动缓存 Yarn Berry 的 .yarn/cache
 
-      # 3. 启用 Corepack 并锁定 Yarn 版本（从 package.json 读取）
-      - name: Enable Corepack
+      # 3. 启用 Corepack 并锁定 Yarn 4.9.1
+      - name: Setup Yarn 4
         run: |
           corepack enable
-          corepack prepare yarn@stable --activate  # 或用具体版本 yarn@4.9.1
+          corepack prepare yarn@4.9.1 --activate
+          echo "Yarn version: $(yarn --version)"
 
-      # 4. 验证 Yarn 版本
-      - name: Check Yarn version
-        run: yarn --version
-
-      # 5. 安装系统依赖（React Native 所需）
-      - name: Install system dependencies
+      # 4. 安装系统依赖 (Android 构建所需)
+      - name: Install Android dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgbm-dev libxss1 \
-            libasound2 libatk-bridge2.0-0 libgtk-3-0
+          sudo apt-get install -y libc6 libgcc1 libstdc++6 zlib1g
 
-      # 6. 安装项目依赖（使用 Yarn Berry）
-      - name: Install dependencies
-        run: |
-          yarn install --immutable  # 严格依赖 lockfile 和缓存
+      # 5. 安装项目依赖 (严格模式)
+      - name: Install project dependencies
+        run: yarn install --immutable
 
-      # 7. 构建步骤（示例：React Native Android）
+      # 6. Android 构建
       - name: Build Android
         run: yarn android
         env:
           CI: true
 
-      # 8. 如果是 iOS 构建，必须切换到 macOS 环境
+  # iOS 构建 (macOS 环境)
   ios-build:
-    needs: build
+    needs: android-build # 可改为独立运行
     runs-on: macos-latest
+    timeout-minutes: 40
+
     steps:
+      # 1-3 步骤与 Android 相同
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v3
         with:
-          node-version: '20'
-      - run: corepack enable && corepack prepare yarn@stable --activate
-      - run: yarn install --immutable
-      - run: yarn ios
+          node-version: 20
+          cache: "yarn"
+      - run: |
+          corepack enable
+          corepack prepare yarn@4.9.1 --activate
+          yarn --version
+
+      # 4. 安装 CocoaPods 依赖
+      - name: Install CocoaPods
+        run: |
+          sudo gem install cocoapods
+          cd ios && pod install --repo-update && cd ..
+
+      # 5. iOS 构建
+      - name: Build iOS
+        run: yarn ios
         env:
           CI: true
           RCT_NO_LAUNCH_PACKAGER: true
