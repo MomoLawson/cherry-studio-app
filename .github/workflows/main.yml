@@ -7,15 +7,11 @@ on:
     branches: [main, master]
 
 jobs:
-  setup:
+  build:
     runs-on: ubuntu-latest
     steps:
-      # 1. 强制清除全局 Yarn 1.x
-      - name: Purge existing Yarn
-        run: |
-          npm uninstall -g yarn || true
-          sudo rm -f $(which yarn) $(which yarnpkg)
-          echo "Yarn removed: $(which yarn || echo 'Not found')"
+      # 1. 检出代码
+      - uses: actions/checkout@v4
 
       # 2. 设置 Node.js 20 (确保自带 Corepack)
       - name: Setup Node.js
@@ -24,50 +20,33 @@ jobs:
           node-version: 20
           cache: 'yarn'
 
-      # 3. 强制激活项目指定的 Yarn 版本
-      - name: Enforce Yarn 4.9.1
+      # 3. 强制安装并激活 Yarn 4 (关键修复步骤)
+      - name: Install Yarn 4 via Corepack
         run: |
+          # 清除可能的旧版 Yarn 残留
+          npm uninstall -g yarn || true
+          rm -f $(which yarn) $(which yarnpkg) || true
+
+          # 通过 Corepack 强制激活指定版本
           corepack enable
           corepack prepare yarn@4.9.1 --activate --yes
           yarn set version 4.9.1
-          echo "Final Yarn version: $(yarn --version)"
-          yarn config set nodeLinker node-modules  # 兼容传统工具链
 
-  build-android:
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      # 复用已配置的环境
-      - name: Use pre-configured Yarn
-        run: |
-          echo "Using Yarn from Corepack: $(yarn --version)"
-          yarn install --immutable --check-cache
-          
-      - name: Build Android
-        run: yarn android
-        env:
-          CI: true
+          # 验证安装
+          echo "Yarn path: $(which yarn)"
+          echo "Yarn version: $(yarn --version)"
 
-  build-ios:
-    needs: setup
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Use pre-configured Yarn
+      # 4. 显式将 Yarn 加入 PATH (保险措施)
+      - name: Add Yarn to PATH
         run: |
-          corepack enable
-          yarn --version
-          yarn install --immutable
-          
-      - name: Install CocoaPods
-        run: |
-          sudo gem install cocoapods -v 1.14.2
-          cd ios && pod install --repo-update && cd ..
-          
-      - name: Build iOS
-        run: yarn ios
-        env:
-          CI: true
+          echo "Adding Yarn to PATH..."
+          echo "$(yarn global bin)" >> $GITHUB_PATH
+          echo "$HOME/.yarn/bin" >> $GITHUB_PATH
+
+      # 5. 安装依赖 (严格模式)
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # 6. 构建项目
+      - name: Build project
+        run: yarn build
