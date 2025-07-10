@@ -1,10 +1,10 @@
-name: React Native CI
+name: React Native CI (Yarn 4)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   build:
@@ -12,26 +12,57 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      # 1. 检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
+      # 2. 设置 Node.js 环境（自动包含 Corepack）
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '20'
-          cache: 'yarn'
+          node-version: '20'  # 必须 >=16.10（Corepack 最低要求）
+          cache: 'yarn'       # 缓存 Yarn 依赖
 
+      # 3. 启用 Corepack 并锁定 Yarn 版本（从 package.json 读取）
       - name: Enable Corepack
-        run: corepack enable
+        run: |
+          corepack enable
+          corepack prepare yarn@stable --activate  # 或用具体版本 yarn@4.9.1
 
-      - name: Install Yarn (project-defined version)
-        run: corepack prepare yarn@4.9.1 --activate
+      # 4. 验证 Yarn 版本
+      - name: Check Yarn version
+        run: yarn --version
 
+      # 5. 安装系统依赖（React Native 所需）
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgbm-dev libxss1 \
+            libasound2 libatk-bridge2.0-0 libgtk-3-0
+
+      # 6. 安装项目依赖（使用 Yarn Berry）
       - name: Install dependencies
-        run: yarn install
+        run: |
+          yarn install --immutable  # 严格依赖 lockfile 和缓存
 
+      # 7. 构建步骤（示例：React Native Android）
+      - name: Build Android
+        run: yarn android
+        env:
+          CI: true
 
-      - name: Run iOS build (simulator)
-        run: yarn ios
+      # 8. 如果是 iOS 构建，必须切换到 macOS 环境
+  ios-build:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      - run: corepack enable && corepack prepare yarn@stable --activate
+      - run: yarn install --immutable
+      - run: yarn ios
         env:
           CI: true
           RCT_NO_LAUNCH_PACKAGER: true
